@@ -1,3 +1,4 @@
+import { scoreRotation } from './scoringEngine.js'
 import { auditStrategy, climateContext, adaptationTip, SCIENCE_REFERENCES } from './scienceChecks.js'
 export const SOURCES = {
   ecocrop:SCIENCE_REFERENCES.ecocrop,
@@ -106,16 +107,23 @@ export function evaluate(field){
     if(field.budgetScope==='season'&&!field.budget)checks.push('Без бюджета невозможно сравнить расходы; агрономический сценарий можно рассмотреть отдельно.')
     if((field.ownGoal||'').trim())checks.push('Свободная цель фермера сохранена, но не переведена в расчётный параметр автоматически.')
     const scientific = auditStrategy(field, opt.crops)
+    const scoring = scoreRotation(field, opt.crops)
     priority += scientific.score
     evidence.push(...scientific.evidence)
     checks.push(...scientific.checks)
-    return {...opt,priority,evidence:[...new Set(evidence)],checks:[...new Set(checks)],benefits,scientific}
-  }).sort((a,b)=>b.priority-a.priority||STRATEGIES.findIndex(x=>x.id===a.id)-STRATEGIES.findIndex(x=>x.id===b.id))
+    return {...opt,priority,evidence:[...new Set(evidence)],checks:[...new Set(checks)],benefits,scientific,scoring}
+  }).sort((a,b)=>{
+    const aScore=a.scoring.score, bScore=b.scoring.score
+    if(aScore!==null && bScore!==null && aScore!==bScore)return bScore-aScore
+    if(aScore===null && bScore!==null)return 1
+    if(bScore===null && aScore!==null)return -1
+    return b.priority-a.priority||STRATEGIES.findIndex(x=>x.id===a.id)-STRATEGIES.findIndex(x=>x.id===b.id)
+  })
   const preferred=list[0]
   const hasNasa=!!field.climate
   const completeness=(hasNasa?1:0)+(hasSoil?1:0)+((field.history||[]).length?1:0)
   return {options:list,preferredId:preferred.id,completeness,hasNasa,hasSoil,climateRisk:climateContext(field),adaptation:adaptationTip(field),
     status:'Предварительный выбор',
-    reason:`Вариант «${preferred.title}» имеет наивысший приоритет по доступным данным и выбранным целям. Это прозрачная качественная сортировка, не прогноз урожая и не доказательство агрономической пригодности.`,
+    reason:`Вариант «${preferred.title}» выбран по открытой экспертной формуле (${preferred.scoring.score===null?'недостаточно данных':preferred.scoring.score+' / 100'}; доступно критериев ${preferred.scoring.coverage}/4). Баллы являются эвристической оценкой для сравнения, не прогнозом урожая и не доказательством пригодности.`,
     method:'Научный слой: правила смены групп культур, предшественников, повторных посевов, парового года и почвенных рисков; NASA POWER — история климата, а не прогноз. Баллы являются явными весами прототипа, НЕ коэффициентами FAO EcoCrop или расчётом ROTAT. EcoCrop и публикации — справочные источники; числовая база EcoCrop ещё не импортирована. Гербициды, сорта, экономика и интервалы возврата проверяются отдельно.'}
 }
