@@ -1,4 +1,7 @@
+import { auditStrategy, climateContext, adaptationTip, SCIENCE_REFERENCES } from './scienceChecks.js'
 export const SOURCES = {
+  ecocrop:SCIENCE_REFERENCES.ecocrop,
+  rotat:SCIENCE_REFERENCES.rotat,
   rotation:{label:'Исследование предшественников яровой твёрдой пшеницы в Северном Казахстане',url:'https://bulletinofscience.kazatu.edu.kz/index.php/bulletinofscience/article/view/1481'},
   fallow:{label:'Региональное исследование зернопаровых севооборотов',url:'https://bulletinofscience.kazatu.edu.kz/index.php/bulletinofscience/article/view/1209'},
   nasa:{label:'NASA POWER',url:'https://power.larc.nasa.gov/docs/services/api/temporal/monthly/'},
@@ -33,9 +36,41 @@ export function evaluate(field){
   const previous=field.history?.at(-1)?.crop||''
   const lastLegume=knownLegume(previous)
   const lastGrain=knownGrain(previous)
+  const manual=field.soilManual||{}
+  const soilType=manual.soilType||manual.texture||''
+  const moisture=manual.moisture||''
+  const fertility=manual.fertility||''
+  const problems=Array.isArray(manual.problems)?manual.problems:[]
+  const hasFarmerSoil=!!(soilType||moisture||fertility||problems.length)
+  const validSoilGrids=Object.values(field.soilResult?.data||{}).some(item=>item&&Number.isFinite(item.value)&&item.value>0)
+  const hasSoil=hasFarmerSoil||validSoilGrids
+
   const list=STRATEGIES.map(opt=>{
     const evidence=[],checks=[],benefits=[opt.pros]
     let priority=0
+    // Observations influence comparison, but do not imply laboratory certainty.
+    if(moisture==='dry'&&opt.id==='diverse'){
+      priority-=1
+      checks.push('Фермер отмечает пересыхание: проверить влагообеспечение гороха и льна.')
+    }
+    if(moisture==='dry'&&opt.id==='fallow'){
+      priority+=1
+      checks.push('При засухе пар требует отдельной оценки водного баланса и эрозии.')
+    }
+    if(problems.includes('erosion')&&opt.id==='fallow'){
+      priority-=3
+      checks.push('При признаках эрозии чистый пар может увеличить риск потери почвы.')
+    }
+    if((moisture==='wet'||problems.includes('waterlogging'))){
+      checks.push('Есть признаки переувлажнения: оценить дренаж и сроки полевых работ.')
+    }
+    if(problems.includes('salinity')){
+      checks.push('Сообщено о возможном засолении: для выбора культур нужен анализ солей.')
+    }
+    if(problems.includes('compaction')){
+      checks.push('Сообщено об уплотнении: проверить обработку почвы и развитие корней.')
+    }
+
     if(opt.id==='diverse'){
       priority+=2
       if(goals.includes('soil')||goals.includes('diversity'))priority+=2
@@ -55,21 +90,32 @@ export function evaluate(field){
     }
     if(typeof rain==='number')evidence.push(`NASA: аномалия осадков за последний полный сезон ${rain>0?'+':''}${rain.toFixed(1)}% к 1991–2020.`)
     else checks.push('Климат NASA ещё не загружен: водный стресс не оценён по рядам наблюдений.')
-    if(field.soilResult?.data?.ph?.value!==undefined){
-      evidence.push(`SoilGrids: pH ${field.soilResult.data.ph.value}, 5–15 см.`)
-    }else checks.push('Почвенные свойства SoilGrids ещё не получены.')
+    if(hasFarmerSoil){
+      evidence.push(`Описание почвы фермером: тип ${soilType||'неизвестен'}, влажность ${moisture||'неизвестна'}, плодородие ${fertility||'неизвестно'}. Это наблюдения, а не лабораторные измерения.`)
+    }else if(!validSoilGrids){
+      checks.push('Нет сведений о почве: укажите хотя бы тип, влажность или плодородие.')
+    }
+    const ph=field.soilResult?.data?.ph?.value
+    if(Number.isFinite(ph)&&ph>0) evidence.push(`SoilGrids: модельный pH ${ph}, 5–15 см.`)
+    if(manual.labSource&&manual.ph!==''&&manual.ph!==undefined){
+      const labPh=Number(manual.ph)
+      if(Number.isFinite(labPh)&&labPh>0&&labPh<=14) evidence.push(`Лабораторный pH: ${labPh}; источник: ${manual.labSource}.`)
+    }
     checks.push(statusOfHerbicides(field))
     if(!field.history?.length)checks.push('Отсутствует история предшественников.')
     if(field.budgetScope==='season'&&!field.budget)checks.push('Без бюджета невозможно сравнить расходы; агрономический сценарий можно рассмотреть отдельно.')
     if((field.ownGoal||'').trim())checks.push('Свободная цель фермера сохранена, но не переведена в расчётный параметр автоматически.')
-    return {...opt,priority,evidence,checks,benefits}
+    const scientific = auditStrategy(field, opt.crops)
+    priority += scientific.score
+    evidence.push(...scientific.evidence)
+    checks.push(...scientific.checks)
+    return {...opt,priority,evidence:[...new Set(evidence)],checks:[...new Set(checks)],benefits,scientific}
   }).sort((a,b)=>b.priority-a.priority||STRATEGIES.findIndex(x=>x.id===a.id)-STRATEGIES.findIndex(x=>x.id===b.id))
   const preferred=list[0]
   const hasNasa=!!field.climate
-  const hasSoil=!!field.soilResult&&!!Object.keys(field.soilResult.data||{}).length
   const completeness=(hasNasa?1:0)+(hasSoil?1:0)+((field.history||[]).length?1:0)
-  return {options:list,preferredId:preferred.id,completeness,hasNasa,hasSoil,
-    status:!hasNasa||!hasSoil?'Предварительный выбор':'Качественная оценка',
+  return {options:list,preferredId:preferred.id,completeness,hasNasa,hasSoil,climateRisk:climateContext(field),adaptation:adaptationTip(field),
+    status:'Предварительный выбор',
     reason:`Вариант «${preferred.title}» имеет наивысший приоритет по доступным данным и выбранным целям. Это прозрачная качественная сортировка, не прогноз урожая и не доказательство агрономической пригодности.`,
-    method:'Проверяемые сравнения: предшественники, доля зерновых, отсутствие урожая в паровой год, цели фермера и климатические аномалии. Бюджет, сорта и конкретные гербициды пока не проверяются автоматической экспертной моделью.'}
+    method:'Научный слой: правила смены групп культур, предшественников, повторных посевов, парового года и почвенных рисков; NASA POWER — история климата, а не прогноз. Баллы являются явными весами прототипа, НЕ коэффициентами FAO EcoCrop или расчётом ROTAT. EcoCrop и публикации — справочные источники; числовая база EcoCrop ещё не импортирована. Гербициды, сорта, экономика и интервалы возврата проверяются отдельно.'}
 }
