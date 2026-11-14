@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+*.log
+server/cache/
+server/storage/
+__pycache__/
+*.py[cod]
+.DS_Store
