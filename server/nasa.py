@@ -1,5 +1,5 @@
 """NASA POWER monthly series; no fabricated climate values or crop yields."""
-import hashlib, json, statistics
+import hashlib, json, statistics, math
 from datetime import datetime, timezone
 from pathlib import Path
 import calendar
@@ -27,12 +27,12 @@ def _fetch(lat,lon,start,end,community,params):
 
 def _valid(parameter,key):
     n=parameter.get(key)
-    return float(n) if isinstance(n,(int,float)) and n>-900 else None
+    return float(n) if isinstance(n,(int,float)) and math.isfinite(n) and n>-900 else None
 
 def climate(lat,lon,force=False):
     if not (-90<=lat<=90 and -180<=lon<=180):raise ClimateError('Некорректные координаты')
     end=datetime.now(timezone.utc).year-1  # complete years only
-    key=hashlib.sha256(f'{lat:.5f}:{lon:.5f}:1991:{end}:v4'.encode()).hexdigest()
+    key=hashlib.sha256(f'{lat:.5f}:{lon:.5f}:1991:{end}:v5'.encode()).hexdigest()
     dest=CACHE/f'nasa_{key}.json'
     if dest.exists() and not force:
         try:
@@ -41,7 +41,8 @@ def climate(lat,lon,force=False):
     props,url=_fetch(lat,lon,1991,end,'AG',BASE_PARAMETERS)
     moisture={};moistureError=None
     try:
-        more,_=_fetch(lat,lon,1991,end,'HY',['GWETROOT'])
+        # HY is rejected by the live monthly service; GWETROOT is available in AG.
+        more,_=_fetch(lat,lon,1991,end,'AG',['GWETROOT'])
         moisture=more.get('GWETROOT',{})
     except ClimateError as exc:
         moistureError=str(exc)
@@ -56,11 +57,11 @@ def climate(lat,lon,force=False):
             humid=_valid(props.get('RH2M',{}),key)
             wind=_valid(props.get('WS2M',{}),key)
             root=_valid(moisture,key)
-            entries.append({'month':month,'rain':None if rain is None else rain*calendar.monthrange(year,month)[1],
+            entries.append({'month':month,'days':calendar.monthrange(year,month)[1],'rain':None if rain is None else rain*calendar.monthrange(year,month)[1],
                             'temp':temp,'radiation':radiation,'humidity':humid,'wind':wind,'root':root})
         def avg(k):
-            vals=[v[k] for v in entries if v[k] is not None]
-            return round(statistics.mean(vals),3) if len(vals)==4 else None
+            vals=[v for v in entries if v[k] is not None]
+            return round(sum(v[k]*v['days'] for v in vals)/sum(v['days'] for v in vals),3) if len(vals)==4 else None
         rain=[e['rain'] for e in entries]
         if any(x is None for x in rain) or avg('temp') is None:continue
         seasons.append({'year':year,'rainMm':round(sum(rain),1),'tempC':avg('temp'),
@@ -83,6 +84,6 @@ def climate(lat,lon,force=False):
          'rows':seasons,'baselineYears':len(normal),'cache':'fresh','moistureError':moistureError,
          'units':{'rain':'мм за май–август','temp':'°C','radiation':'кВт·ч/м²/сут','humidity':'%',
                   'wind':'м/с','rootWetness':'доля от 0 до 1'},
-         'description':'PRECTOTCORR: средние мм/сут × календарные дни; средние других величин — среднее четырёх месяцев.'}
+         'description':'PRECTOTCORR: средние мм/сут × календарные дни; остальные сезонные средние взвешены по числу дней месяца. GWETROOT запрашивается отдельно в AG.'}
     dest.write_text(json.dumps(out,ensure_ascii=False),encoding='utf-8')
     return out

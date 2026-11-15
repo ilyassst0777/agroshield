@@ -4,7 +4,8 @@ export default function ScoringDetails({scoring}) {
   if (!scoring) return null
   return <div className="info-card" style={{marginTop:16}}>
     <h3>Как рассчитан выбор</h3>
-    <p><strong>{scoring.score === null ? 'Недостаточно данных' : `${scoring.score} / 100`}</strong> · рассчитано критериев {scoring.coverage}/4</p>
+    <p><strong>{scoring.score === null ? 'Недостаточно данных' : `${scoring.score} / 100`}</strong> · рассчитано критериев {scoring.coverage}/{scoring.criteriaCount || Object.keys(scoring.dimensions).length}</p>
+    <p className="subtle-note">Учтено {scoring.usedWeight ?? '—'}% суммарного веса. Пропуски не означают нулевой риск. Версия правил: {scoring.ruleVersion || 'прежняя'}.</p>
     <p className="muted small">Баллы — прозрачная эвристика прототипа, а не вероятность урожая и не коэффициенты FAO/ROTAT.</p>
     <div className="table-scroll"><table>
       <thead><tr><th>Критерий</th><th>Вес</th><th>Оценка</th></tr></thead>

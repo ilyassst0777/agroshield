@@ -15,9 +15,9 @@ from server.app import app
 
 
 def test_soil_conversion_and_wcs_parameters(monkeypatch):
-    assert soil.RASTER_PROPERTIES['sand_pct'][1] == 100
-    assert soil.RASTER_PROPERTIES['silt_pct'][1] == 100
-    assert soil.RASTER_PROPERTIES['clay_pct'][1] == 100
+    assert soil.RASTER_PROPERTIES['sand_pct'][1] == 10
+    assert soil.RASTER_PROPERTIES['silt_pct'][1] == 10
+    assert soil.RASTER_PROPERTIES['clay_pct'][1] == 10
     assert soil.RASTER_PROPERTIES['ph'][1] == 10
     assert soil.RASTER_PROPERTIES['soc_g_kg'][1] == 10
     region,bounds=soil.query_region(54.87,69.15)

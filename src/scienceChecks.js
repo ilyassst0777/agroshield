@@ -2,6 +2,7 @@
  * These are transparent pilot heuristics inspired by crop-rotation literature.
  * They are NOT values extracted from FAO EcoCrop or a validated ROTAT implementation.
  */
+import { planningFor, resolveCrop } from './cropCatalog.js'
 export const SCIENCE_REFERENCES = Object.freeze({
   ecocrop: { label: 'FAO EcoCrop — требования культур (справочная база)', url: 'https://www.fao.org/land-water/resources/tools/databases/ecocrop/en' },
   rotat: { label: 'ROTAT — принципы построения севооборотов (Dogliotti et al.)', url: 'https://doi.org/10.1016/S1161-0301(02)00047-3' },
@@ -29,7 +30,6 @@ const GROUPS = {
   wheat: 'cereal', barley: 'cereal', maize: 'cereal',
   flax: 'oil', sunflower: 'oil', rapeseed: 'oil', fallow: 'fallow',
 }
-const label = id => ({ legume: 'бобовых', cereal: 'зерновых', oil: 'масличных' }[id] || 'культур')
 const hasRisk = field => field.soilManual?.moisture === 'dry' || (field.soilManual?.problems || []).includes('erosion')
 
 /** Climate context: past seasons, never a future forecast. */
@@ -53,8 +53,10 @@ export function auditStrategy(field, crops) {
   const checks = []
   const evidence = []
   let score = 0
-  const history = [...(field.history || [])].sort((a, b) => Number(a.year) - Number(b.year))
-  const previous = history.at(-1)?.crop || ''
+  const startYear = Number(planningFor(field).startYear)
+  const history = [...(field.history || [])].filter(row => Number(row.year) < startYear).sort((a, b) => Number(a.year) - Number(b.year))
+  const previousRows = history.filter(row => Number(row.year) === startYear - 1)
+  const previous = previousRows.length === 1 && resolveCrop(previousRows[0].crop) ? previousRows[0].crop : ''
   const steps = [previous, ...crops]
   const climate = climateContext(field)
   evidence.push(climate.label)

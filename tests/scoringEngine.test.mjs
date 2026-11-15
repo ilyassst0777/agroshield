@@ -1,37 +1,20 @@
+import test from 'node:test'
 import assert from 'node:assert/strict'
-import {scoreRotation, WEIGHTS} from '../src/scoringEngine.js'
 import {evaluate} from '../src/rotationEngine.js'
-
-const field = {
-  history:[{year:2023,crop:'Горох'}, {year:2024,crop:'Ячмень'}, {year:2025,crop:'Пшеница'}],
-  climate:{latestYear:2025,latestRainMm:286,precipAnomalyPct:39,latestTempC:17.5},
-  soilManual:{soilType:'chernozem',moisture:'dry',problems:['erosion']},
-  goals:['harvest','soil','water'], irrigation:'no',herbicideStatus:'no',
-}
-assert.equal(Object.values(WEIGHTS).reduce((a,b)=>a+b,0),100)
-const candidates=[['Горох','Пшеница','Лён'],['Чистый пар','Пшеница','Ячмень'],['Ячмень','Пшеница','Ячмень']]
-for(const crops of candidates){
-  const result=scoreRotation(field,crops)
-  assert(result.score >=0 && result.score<=100)
-  assert.equal(result.coverage,4)
-  assert.equal(Object.keys(result.dimensions).length,4)
-  assert.equal(result.cropChecks.length,3)
-}
-const diverse=scoreRotation(field,candidates[0])
-const cereal=scoreRotation(field,candidates[2])
-assert(diverse.score>cereal.score,'History and diversity should affect the ranking')
-assert(scoreRotation({...field,history:[]},candidates[0]).dimensions.agronomy.score === null)
-assert(scoreRotation({...field,climate:null},candidates[0]).dimensions.climate.score === null)
-assert(scoreRotation({...field,soilManual:{}},candidates[0]).dimensions.water.score === null)
-assert(scoreRotation({...field,goals:[]},candidates[0]).dimensions.goals.score === null)
-const result=evaluate(field)
-assert.equal(result.options.length,3)
-assert.equal(result.preferredId,result.options[0].id)
-assert(result.options.every(x=>x.scoring && x.scoring.dimensions))
-const differentHistory=evaluate({...field,history:[{year:2025,crop:'Горох'}]})
-assert.notEqual(result.options.find(x=>x.id==='diverse').scoring.dimensions.agronomy.score,
-  differentHistory.options.find(x=>x.id==='diverse').scoring.dimensions.agronomy.score)
-const drought=scoreRotation({...field,climate:{latestYear:2025,precipAnomalyPct:-25}},['Кукуруза','Пшеница','Ячмень'])
-assert(drought.dimensions.climate.notes.some(x=>x.includes('кукуруза')))
-assert(!JSON.stringify(result).includes('прогноз урожайности'))
-console.log('Transparent scoring tests passed')
+import {scoreRotation,weightsFor} from '../src/scoringEngine.js'
+import {observationSuggestions,confirmedSuggestions} from '../src/analysisProfile.js'
+const base=()=>({id:'test',name:'Поле',dataVersion:1,areaHa:10,budget:100000,budgetScope:'season',goals:['harvest','water'],irrigation:'no',herbicideStatus:'no',history:[{year:2026,crop:'Ячмень'}],soilManual:{moisture:'dry'},climate:{baselineRain:200,precipAnomalyPct:-20,rows:[{year:2023,rainMm:100,tempC:20},{year:2024,rainMm:250,tempC:18},{year:2025,rainMm:120,tempC:21}]},planning:{startYear:2027,allowedCrops:['wheat','barley','pea'],cropRules:{wheat:{seasonCostHa:5000},barley:{seasonCostHa:4000},pea:{seasonCostHa:6000}}}})
+test('enumerates full rotations and returns three ranked options',()=>{const r=evaluate(base());assert.equal(r.generatedCount,27);assert.equal(r.options.length,3);assert(r.options.every(o=>o.scoring.costs.complete));assert(r.options[0].scoring.score>=r.options[1].scoring.score)})
+test('budget excludes unaffordable crops',()=>{const f=base();f.budget=45000;const r=evaluate(f);assert(r.options.every(o=>o.cropIds.every(c=>c==='barley')));assert(r.rejectedCount>0)})
+test('zero budget is different from missing budget',()=>{const f=base();f.budget=0;assert.equal(evaluate(f).options.length,0);f.budget='';assert(evaluate(f).options.length>0)})
+test('explicit bans cannot be bypassed by custom rotation',()=>{const f=base();f.planning.cropRules.pea.blocked=true;const r=evaluate(f,['pea','wheat','barley']);assert.equal(r.customOption.eligible,false);assert(r.options.every(o=>!o.cropIds.includes('pea')))})
+test('return periods use actual plan years and proposed crops',()=>{const f=base();f.history=[{year:2024,crop:'Горох'}];f.planning.cropRules.pea.minReturnYears=4;assert(!evaluate(f,['pea','wheat','barley']).customOption.eligible);f.planning.startYear=2028;assert(evaluate(f,['pea','wheat','barley']).customOption.eligible);assert(!evaluate(f,['pea','wheat','pea']).customOption.eligible)})
+test('missing immediate predecessor is explicit',()=>{const f=base();f.history=[{year:2025,crop:'Пшеница'}];const r=evaluate(f);assert.equal(r.canApprove,false);assert(r.limitations.some(s=>s.includes('2026')));assert(r.options[0].scoring.cropChecks[0][0].includes('не установлен'))})
+test('unknown costs remain unknown and block budget approval',()=>{const f=base();delete f.planning.cropRules.pea.seasonCostHa;const o=evaluate(f,['pea','wheat','barley']).customOption;assert.equal(o.scoring.costs.total,null);assert.equal(o.canApprove,false)})
+test('annual and whole-rotation budgets differ',()=>{const f=base();assert(evaluate(f,['wheat','wheat','wheat']).customOption.eligible);f.planning.budgetPeriod='rotation';assert(!evaluate(f,['wheat','wheat','wheat']).customOption.eligible)})
+test('model pH warns while sourced laboratory pH enforces entered range',()=>{const f=base();f.planning.cropRules.pea.phMin=6;f.soilResult={data:{ph:{value:5}}};assert(evaluate(f,['pea','wheat','barley']).customOption.eligible);f.soilManual={ph:5,labSource:'Лаборатория, 2026'};assert(!evaluate(f,['pea','wheat','barley']).customOption.eligible)})
+test('NASA historical seasons influence climate score',()=>{const f=base();const a=scoreRotation(f,['pea','wheat','barley']).dimensions.climate.score;f.climate.rows=f.climate.rows.map(r=>({...r,rainMm:250}));assert(scoreRotation(f,['pea','wheat','barley']).dimensions.climate.score>a)})
+test('goals change normalized weights',()=>{assert(weightsFor(['cost']).economy>weightsFor([]).economy);assert(Math.abs(Object.values(weightsFor(['cost','soil'])).reduce((a,b)=>a+b,0)-100)<0.01)})
+test('notes need confirmation and negation is respected',()=>{const f=base();f.soilManual={};f.observations='Летом почва пересыхает. В низине задерживается вода.';assert.equal(observationSuggestions(f).length,2);assert.equal(scoreRotation(f,['pea','wheat','barley']).dimensions.water.score,null);f.soilManual=confirmedSuggestions(f,['dry','waterlogging']);assert.notEqual(scoreRotation(f,['pea','wheat','barley']).dimensions.water.score,null);f.soilManual={};f.observations='Почва не пересыхает. Вода не задерживается.';assert.equal(observationSuggestions(f).length,0)})
+test('snapshot is independent of subsequent input changes',()=>{const f=base();const r=evaluate(f);f.soilManual.moisture='wet';assert.equal(r.inputSnapshot.soilManual.moisture,'dry')})
+test('invalid numeric input produces an actionable error',()=>{const f=base();f.budget=-1;const r=evaluate(f);assert.equal(r.options.length,0);assert(r.inputErrors.length>0)})
