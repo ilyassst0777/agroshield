@@ -1,4 +1,4 @@
-export const STATUS_LABELS={blocked:'Не проходит ограничения',review:'Требует проверки',consider:'Можно рассмотреть'}
+export const STATUS_LABELS={blocked:'Не проходит ограничения',review:'',consider:'Можно рассмотреть'}
 import {buildProfile,inputLedger} from './analysisProfile.js'
 import {checkConstraints} from './scoringEngine.js'
 import {cropById,resolveCrop,RULE_VERSION} from './cropCatalog.js'

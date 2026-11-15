@@ -7,7 +7,7 @@ import {STATUS_LABELS} from './qualitativeEngine.js'
 
 const GOALS = [['harvest', 'Посев в следующем сезоне'], ['soil', 'Разнообразить группы культур'], ['cost', 'Сократить известные расходы'], ['erosion', 'Снизить риски парового года при эрозии']]
 const fmt = value => typeof value === 'number' && Number.isFinite(value) ? value.toLocaleString('ru-RU', { maximumFractionDigits: 1 }) : 'неизвестно'
-const STATUS = { used: 'Учтено', context: 'Справочно', missing: 'Не хватает данных', review: 'Нужна проверка' }
+const STATUS = { used: 'Учтено', context: 'Справочно', missing: 'Не хватает данных', review: 'Сведения для уточнения' }
 const Button = ({ children, primary, ...props }) => <button type="button" className={`btn ${primary ? 'primary' : 'secondary'}`} {...props}>{children}</button>
 
 function PlanningInputs({ draft, setDraft }) {
@@ -72,7 +72,7 @@ function ObservationReview({ field, patch }) {
 
 function Compare({ options }) {
  return <div className="table-scroll"><table className="compare-table"><thead><tr><th>Проверка</th>{options.map(o=><th key={o.id}>{o.title}</th>)}</tr></thead><tbody>
- <tr><td>Результат</td>{options.map(o=><td key={o.id}>{STATUS_LABELS[o.assessment.status]}</td>)}</tr>
+ <tr><td>Результат</td>{options.map(o=><td key={o.id}>{STATUS_LABELS[o.assessment.status]||'Обоснование ниже'}</td>)}</tr>
  <tr><td>Разнообразие</td>{options.map(o=><td key={o.id}>{o.structure.groups} группы</td>)}</tr>
  <tr><td>Повторы подряд</td>{options.map(o=><td key={o.id}>{o.structure.repeats}</td>)}</tr>
  <tr><td>Расходы за три года</td>{options.map(o=><td key={o.id}>{fmt(o.costs.total)} ₸</td>)}</tr>
@@ -114,7 +114,7 @@ export default function Recommendations({field,patch,onDecide,onCalculated,onDat
  {analysis&&<>
  <div className="ai-highlight"><span className="eyebrow">ПРЕДВАРИТЕЛЬНЫЕ ВАРИАНТЫ</span><p>{analysis.reason}</p><p className="small">Проверено последовательностей: {analysis.generatedCount}. Исключено по заданным ограничениям: {analysis.rejectedCount}.</p></div>
  {analysis.inputErrors.length>0&&<div className="notice" role="alert">{analysis.inputErrors.map(t=><p key={t}>{t}</p>)}</div>}
- <div className="rotation-list">{analysis.options.map((o,i)=><button type="button" className={`rotation-option ${choice?.id===o.id?'selected':''}`} key={o.id} aria-pressed={choice?.id===o.id} onClick={()=>setSelected(o.id)}><div className="section-head"><strong>Вариант {i+1}</strong><span className="pill">{STATUS_LABELS[o.assessment.status]}</span></div><div className="year-grid">{o.crops.map((c,j)=><div className="year" key={j}><small>{analysis.startYear+j}</small><strong>{c}</strong></div>)}</div><p>{o.assessment.strengths[0]||'Вариант для сравнения по доступным сведениям.'}</p><p>Расходы за три года: {o.costs.total===null?'не рассчитаны':`${fmt(o.costs.total)} ₸`}</p></button>)}</div>
+ <div className="rotation-list">{analysis.options.map((o,i)=><button type="button" className={`rotation-option ${choice?.id===o.id?'selected':''}`} key={o.id} aria-pressed={choice?.id===o.id} onClick={()=>setSelected(o.id)}><div className="section-head"><strong>Вариант {i+1}</strong>{STATUS_LABELS[o.assessment.status]&&<span className="pill">{STATUS_LABELS[o.assessment.status]}</span>}</div><div className="year-grid">{o.crops.map((c,j)=><div className="year" key={j}><small>{analysis.startYear+j}</small><strong>{c}</strong></div>)}</div><p>{o.assessment.strengths[0]||'Вариант для сравнения по доступным сведениям.'}</p><p>Расходы за три года: {o.costs.total===null?'не рассчитаны':`${fmt(o.costs.total)} ₸`}</p></button>)}</div>
  {analysis.options.length>1&&<details className="info-card"><summary>Сравнить варианты</summary><Compare options={analysis.options}/></details>}
  {choice&&<><div className="info-card"><h3>Выбранный вариант: {choice.title}</h3><AssessmentDetails option={choice}/><details><summary>Расходы по годам</summary><p className="small muted">{choice.costs.basis}; источник: {analysis.inputSnapshot.planning.costSource||'не указан'}.</p><div className="table-scroll"><table><thead><tr><th>Год</th><th>Культура</th><th>₸/га</th><th>На поле, ₸</th></tr></thead><tbody>{choice.costs.years.map(row=><tr key={row.year}><td>{row.year}</td><td>{row.crop}</td><td>{fmt(row.perHa)}</td><td>{fmt(row.total)}</td></tr>)}</tbody></table></div></details></div>
  <div className="action-row"><Button primary disabled={stale||!choice.canApprove} onClick={()=>decide('approve')}>Сохранить выбранный план</Button><Button disabled={stale} onClick={()=>decide('draft')}>Сохранить черновик</Button><Button disabled={stale} onClick={()=>decide('reject')}>Отклонить вариант</Button></div>
