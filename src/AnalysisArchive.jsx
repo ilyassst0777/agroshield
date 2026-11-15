@@ -1,4 +1,4 @@
-import ScoringDetails from './ScoringDetails.jsx'
+import AssessmentDetails from './AssessmentDetails.jsx'
 
 export default function AnalysisArchive({ field }) {
   return <section className="panel"><h2>История анализов</h2><p className="muted">Отдельно для поля «{field.name}». Сохранённые результаты используют данные на момент решения.</p>
@@ -7,7 +7,7 @@ export default function AnalysisArchive({ field }) {
       <p>{entry.name || entry.text}</p><p className="muted small">Версия данных: {entry.dataVersion}</p>
       {entry.result && <details><summary>Открыть сохранённый расчёт и исходные сведения</summary>
         <div className="year-grid">{entry.result.crops.map((crop, index) => <div className="year" key={index}><small>{entry.result.startYear + index}</small><strong>{crop}</strong></div>)}</div>
-        <ScoringDetails scoring={entry.result.scoring} />
+        {entry.result.assessment ? <AssessmentDetails option={{assessment:entry.result.assessment}} /> : <p className="muted small">Сохранён результат прежней версии. Для проверки по текущим правилам выполните новый подбор.</p>}
         <div className="subtle-note"><strong>Данные на момент решения</strong><p>Поле: {entry.result.inputSnapshot.name}. Площадь: {entry.result.inputSnapshot.areaHa ?? 'не указана'} га. Бюджет: {entry.result.inputSnapshot.budget ?? 'не указан'} ₸.</p>
           <p>История: {entry.result.inputSnapshot.history.map(row => `${row.year} — ${row.crop}`).join('; ') || 'нет записей'}.</p>
           <p>Наблюдения: {entry.result.inputSnapshot.observations || 'нет записей'}.</p>
