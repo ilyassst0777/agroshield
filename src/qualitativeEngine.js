@@ -2,6 +2,7 @@ export const STATUS_LABELS={blocked:'Не проходит ограничени�
 import {buildProfile,inputLedger} from './analysisProfile.js'
 import {checkConstraints} from './scoringEngine.js'
 import {cropById,resolveCrop,RULE_VERSION} from './cropCatalog.js'
+import {preferenceDifference,explainRotation} from './rotationExplanation.js'
 
 export function assessRotation(profile,ids){
  const crops=ids.map(cropById),constraints=checkConstraints(profile,ids)
@@ -42,15 +43,7 @@ export function evaluate(field,custom=''){
  const p=buildProfile(field),eligible=[],rejected=[]
  if(!p.inputErrors.length)for(const a of p.allowed)for(const b of p.allowed)for(const c of p.allowed){const option=assessRotation(p,[a,b,c]);(option.eligible?eligible:rejected).push(option)}
  // Sequential, explicit preferences; no synthetic scores, weights or risk probabilities.
- eligible.sort((a,b)=>{
-  if((field.goals||[]).includes('harvest')&&(a.cropIds[0]==='fallow')!==(b.cropIds[0]==='fallow'))return a.cropIds[0]==='fallow'?1:-1
-  if(a.structure.repeats!==b.structure.repeats)return a.structure.repeats-b.structure.repeats
-  if(a.structure.grainTransitions!==b.structure.grainTransitions)return a.structure.grainTransitions-b.structure.grainTransitions
-  if((field.goals||[]).includes('erosion')&&a.structure.fallow!==b.structure.fallow)return a.structure.fallow-b.structure.fallow
-  if((field.goals||[]).some(g=>['soil','diversity'].includes(g))&&a.structure.groups!==b.structure.groups)return b.structure.groups-a.structure.groups
-  if((field.goals||[]).includes('cost')&&a.costs.complete&&b.costs.complete&&a.costs.total!==b.costs.total)return a.costs.total-b.costs.total
-  return a.id.localeCompare(b.id)
- })
+ eligible.sort((a,b)=>preferenceDifference(a,b,field.goals).order||a.id.localeCompare(b.id))
  let customOption=null,customError=''
  if(Array.isArray(custom)?custom.length:String(custom).trim()){
   const ids=(Array.isArray(custom)?custom:String(custom).split(/[;\n→]/).map(v=>v.replace(/^\s*\d{4}\s*[-—:–]\s*/,''))).map(resolveCrop)
@@ -58,6 +51,8 @@ export function evaluate(field,custom=''){
   else if(p.inputErrors.length)customError='Исправьте значения условий перед проверкой своего варианта.'
   else customOption=assessRotation(p,ids)
  }
+ for(const option of eligible.slice(0,3))option.assessment.explanation=explainRotation(p,option,eligible)
+ if(customOption)customOption.assessment.explanation=explainRotation(p,customOption,eligible)
  const ledger=inputLedger(p).map(row=>row.label==='Цели фермера'?{...row,detail:'Учитываются при последовательном сравнении: товарный посев первого года, разнообразие, пар и известные затраты.'}:row.label==='NASA: осадки'?{...row,status:p.hasNasa?'context':'missing',detail:eligible[0]?.assessment.climateText||'Исторический климатический контекст; водная пригодность сортов не рассчитана.'}:row)
  return {options:eligible.slice(0,3),customOption,customError,preferredId:null,ruleVersion:RULE_VERSION,dataVersion:field.dataVersion,startYear:p.startYear,
   generatedCount:p.inputErrors.length?0:p.allowed.length**3,eligibleCount:eligible.length,rejectedCount:rejected.length,

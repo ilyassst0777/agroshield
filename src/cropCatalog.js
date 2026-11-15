@@ -1,7 +1,7 @@
 /** Small, editable pilot catalogue. Ordinal risk factors are prototype assumptions,
  * not measured water requirements, local variety recommendations or FAO coefficients.
  * Hard pH/return-period restrictions only come from the user's documented rules. */
-export const RULE_VERSION = 'qualitative-2.0'
+export const RULE_VERSION = 'qualitative-2.1'
 export const CATALOG_SOURCE = 'https://www.fao.org/4/s2022e/s2022e07.htm'
 export const CROP_CATALOG = Object.freeze([
   { id: 'wheat', name: 'Пшеница', group: 'grain', drought: 1.5, wet: 1.5 },
